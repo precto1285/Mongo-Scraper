@@ -1,40 +1,77 @@
-//Parses our HTML and helps us find elements
-var cheerio = require("cheeiro");
-//Makes HTTP request for HTML page
-var request = require("request");
+var express = require("express");
+var bodyParser = require("body-parser");
+var logger = require("morgan");
+var mongoose = require("mongoose");
 
-//Tell console what index.js is doing
-console.log("Grabbing thread name and link");
+var axios = require("axios");
+var cheerio = require("cheerio");
 
-// Making a request from website. The page's HTML is passed as the callback's third argument
-request("https://", function (error, response, html) {
+var db = require("./models");
 
-    // Load the HTML into cheerio and save it to a variable
-    // '$' becomes a shorthand for cheerio's selector commands, much like jQuery's '$'
-    var $ = cheerio.load(html);
+var PORT = 3000;
 
-    //An empty array to save the data that we'll scrape
-    var results = [];
+var app = express();
 
-    //With cheerio, find each p-tag with the "title" class
-    // (i: iterator. element: the current element)
-    $("p.title").each(function (i, element) {
+app.use(logger("dev"));
 
-        //Save the text of the element in a "title" variable
-        var title = $(element).text();
+app.use(body.Parser.urlencoded({ extended: true }));
+app.use(express.static("public"));
 
-        //In the currently selected element, look at its child elements(i.e., its a-tags),
-        //then save the values for any "href" attributes that the child elements may have
-        var link = $(element).children().attr("href");
+mongoose.connect("mongodb://localhost/");
 
-        //Save these results in an object that we'll push into the results array we defined earlier
-        results.push({
-            title: title,
-            link: link
+//Route for scraping
+app.get("/scrape", function(req, res) {
+    axios.get("http://").then(function(response) {
+        var $ = cheerio.load(response.data);
+
+        $("article h2").each(function(i, element) {
+            var result = {}; 
+            result.title = $(this)
+            .children("a")
+            .text();
+            result.link = $(this)
+            .children("a")
+            .attr("href");
+
+            db.Article.create(result)
+            .then(function(dbArticle) {
+                console.log(dbArticle);
+            })
+            .catch(function(err) {
+                return res.json(err);
+            });
         });
 
+        res.send("Scrape Complete");
     });
+});
 
-    // Log the results once you've looped through each of the elements found with cheerio
-    console.log(results);
+//Route for getting all articles from the db
+app.get("/articles", function(req, res) {
+    db.article.find({})
+    .then(function(dbArticle) {
+        res.json(dbArticle);
+    })
+    .catch(function(err) {
+        res.json(err);
+    });
+});
+
+//Route for grabbing specific articles by id, populate with it's note
+app.get("/articles/:id", function(req, res) {
+    db.Note.create(req.body)
+    .then(function(dbNote) {
+        return db.Article.findOneAndUpdate({ _id: req.params.id }, { note: db.Note._id }, { new:true });
+    })
+    .then(function(dbArticle) {
+        res.json(dbArticle);
+    })
+    .catch(function(err) {
+        res.json(err);
+    });
+});
+
+//Start server
+app.listen(PORT, function() {
+    console.log("App running on port " + PORT + "!");
 });
